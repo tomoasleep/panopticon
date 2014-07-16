@@ -1,21 +1,20 @@
 #include <iostream>
 #include <vector>
 #include <deque>
-#include <array>
 // #include "opencv/cv.hpp"
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
 
-#define THUMBNAIL_ROW_X_COUNT 4
-#define THUMBNAIL_ROW_Y_COUNT 4
+#define THUMBNAIL_ROW_X_COUNT 8
+#define THUMBNAIL_ROW_Y_COUNT 8
 #define THUMBNAIL_TIME 10
 
 using namespace cv;
 using namespace std;
 
 typedef std::deque<Mat> VideoBuffer;
-typedef array<VideoBuffer, THUMBNAIL_ROW_X_COUNT> VideoBuffersX;
-typedef array<VideoBuffersX, THUMBNAIL_ROW_Y_COUNT> VideoBuffersXY;
+typedef vector<VideoBuffer> VideoBuffersX;
+typedef vector<VideoBuffersX> VideoBuffersXY;
 
 struct errorInfo {
     errorInfo(int ti, int tx, int ty){
@@ -45,7 +44,7 @@ class Converter {
         try {
             for (int i = 0; i < each_frame_count; i++) {
                 // create frame to edit
-                Size wide_size(full_size.width + cell_size.width * 2, full_size.height);
+                Size wide_size(full_size.width + cell_size.width * 2 + 10, full_size.height + 10);
                 Mat combined_frame(wide_size, CV_8UC3);
 
                 for (auto vxitr = divi.begin(); vxitr != divi.end(); ++vxitr) {
@@ -74,6 +73,7 @@ class Converter {
                             Point startp(
                                     cell_size.width * (i / (double)each_frame_count),
                                     cell_size.height * y);
+                            if (isDebug) cout << "startp: " << startp.x << ' ' << startp.y << endl;
                             writeToRect(startp, combined_frame, cell_frame);
                         }
 
@@ -97,7 +97,8 @@ class Converter {
 
     Size full_size, cell_size;
     double frame_count, fps;
-    int each_frame_count, frame_capture_ratio;
+    int each_frame_count, frame_capture_ratio, division_number;
+    int row_x_number, row_y_number;
     bool isDebug;
     VideoCapture source;
 
@@ -112,10 +113,12 @@ class Converter {
 
         // Set source's pos to head
         source.set(CV_CAP_PROP_POS_FRAMES, 0);
-        for (int y = 0; y < THUMBNAIL_ROW_Y_COUNT; y++) {
+        vxy.resize(row_y_number);
+        for (int y = 0; y < row_y_number; y++) {
             vxy[y] = VideoBuffersX(); VideoBuffersX &vx = vxy[y];
+            vx.resize(row_x_number);
 
-            for (int x = 0; x < THUMBNAIL_ROW_X_COUNT; x++) {
+            for (int x = 0; x < row_x_number; x++) {
                 vx[x] = VideoBuffer(); VideoBuffer &buffer = vx[x];
 
                 for (int i = 0; i < each_frame_count; i++) {
@@ -138,22 +141,45 @@ class Converter {
         double width = source.get(CV_CAP_PROP_FRAME_WIDTH);
         double height = source.get(CV_CAP_PROP_FRAME_HEIGHT);
 
+        // decide division_number
+        int div;
+        for (div = 8; div > 3; div--) {
+            if (width / div > 160 && height / div > 130) break;
+        }
+        division_number = div;
+        if (isDebug) cout << "division_number: " << division_number << endl;
+
+        cell_size = Size(width / division_number, height / division_number);
+        if (isDebug) cout << "cell_size: " << cell_size.width << ' ' << cell_size.height << endl;
+
+        // decide frame row counts
+        int row;
+        for (row = 8; row > 4; row--) {
+            if (cell_size.width * row <= 1920) break;
+        }
+        row_y_number = row;
+
+        for (int row = 8; row > 4; row--) {
+            if (cell_size.height * row <= 1080) break;
+        }
+        row_x_number = row;
+        if (isDebug) cout << "row_number(x, y): " << row_x_number <<  ' ' << row_y_number << endl;
+
+        full_size = Size(cell_size.width * row_x_number, cell_size.height * row_y_number);
+        if (isDebug) cout << "full_size: " << full_size.width << ' ' << full_size.height << endl;
+
         frame_count = source.get(CV_CAP_PROP_FRAME_COUNT);
         if (isDebug) cout << "frame_count: " << frame_count << endl;
 
-        each_frame_count = (int)floor(frame_count / (THUMBNAIL_ROW_X_COUNT * THUMBNAIL_ROW_Y_COUNT));
+        each_frame_count = (int)floor(frame_count / (row_x_number * row_y_number));
         if (isDebug) cout << "each_frame_count: " << each_frame_count << endl;
 
-        full_size = Size(width, height);
-        if (isDebug) cout << "full_size: " << full_size.width << ' ' << full_size.height << endl;
-        cell_size = Size((int)(width / THUMBNAIL_ROW_X_COUNT), (int)(height / THUMBNAIL_ROW_Y_COUNT));
-        if (isDebug) cout << "cell_size: " << cell_size.width << ' ' << cell_size.height << endl;
 
         calc_and_adjust_fps();
     }
 
     void calc_and_adjust_fps() {
-        fps = frame_count / (THUMBNAIL_ROW_X_COUNT * THUMBNAIL_ROW_Y_COUNT * THUMBNAIL_TIME);
+        fps = frame_count / (row_x_number * row_y_number * THUMBNAIL_TIME);
         frame_capture_ratio = 1;
         if (isDebug) cout << "original_fps: " << fps << endl;
         while (fps > 60.0) {
@@ -167,6 +193,6 @@ class Converter {
 };
 
 int main(void) {
-    Converter conv("sample.mp4", true);
-    conv.write("conv.avi");
+    Converter conv("UrbanIsolation_SD.mp4", true);
+    conv.write("urban.avi");
 }
